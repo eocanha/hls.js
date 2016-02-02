@@ -1274,6 +1274,8 @@ _checkBuffer() {
         this.flushRange.shift();
       } else {
         this._needsFlush = true;
+        // avoid looping, wait for SB update end to retrigger a flush
+        return;
       }
     }
     if (this.flushRange.length === 0) {
