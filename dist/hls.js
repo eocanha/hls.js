@@ -855,6 +855,25 @@ var State = {
   ENDED: 9
 };
 
+var StateName = function(i) {
+  switch (i) {
+  case -2: return "ERROR";
+  case -1: return "STARTING";
+  case 0: return "IDLE";
+  case 1: return "KEY_LOADING";
+  case 2: return "FRAG_LOADING";
+  case 3: return "FRAG_LOADING_WAITING_RETRY";
+  case 4: return "WAITING_LEVEL";
+  case 5: return "PARSING";
+  case 6: return "PARSED";
+  case 7: return "APPENDING";
+  case 8: return "BUFFER_FLUSHING";
+  case 9: return "ENDED";
+  default: return "unknown";
+  }
+};
+
+
 var MSEMediaController = (function (_EventHandler) {
   _inherits(MSEMediaController, _EventHandler);
 
@@ -966,6 +985,10 @@ var MSEMediaController = (function (_EventHandler) {
           level,
           levelDetails,
           hls = this.hls;
+
+
+      console.log("### doTick(): state="+StateName(this.state));
+
       switch (this.state) {
         case State.ERROR:
           //don't do anything in error state to avoid breaking further ...
@@ -1850,6 +1873,7 @@ var MSEMediaController = (function (_EventHandler) {
           data.stats.tparsed = data.stats.tbuffered = performance.now();
           this.hls.trigger(_events2['default'].FRAG_BUFFERED, { stats: data.stats, frag: fragCurrent });
         } else {
+	  console.log("### onFragLoaded(): Changing to PARSING");
           this.state = State.PARSING;
           // transmux the MPEG-TS data to ISO-BMFF segments
           this.stats = data.stats;
@@ -1880,6 +1904,7 @@ var MSEMediaController = (function (_EventHandler) {
   }, {
     key: 'onFragParsingInitSegment',
     value: function onFragParsingInitSegment(data) {
+      console.log("### onFragParsingInitSegment()");
       if (this.state === State.PARSING) {
         // check if codecs have been explicitely defined in the master playlist for this level;
         // if yes use these ones instead of the ones parsed from the demux
@@ -1940,6 +1965,7 @@ var MSEMediaController = (function (_EventHandler) {
     key: 'onFragParsingData',
     value: function onFragParsingData(data) {
       if (this.state === State.PARSING) {
+	console.log("### onFragParsingData()");
         this.tparse2 = Date.now();
         var level = this.levels[this.level],
             frag = this.fragCurrent;
@@ -1962,6 +1988,7 @@ var MSEMediaController = (function (_EventHandler) {
     key: 'onFragParsed',
     value: function onFragParsed() {
       if (this.state === State.PARSING) {
+	console.log("### onFragParsed(): Changing to PARSING");
         this.state = State.PARSED;
         this.stats.tparsed = performance.now();
         //trigger handler right now
@@ -3189,6 +3216,13 @@ var _remuxMp4Remuxer = require('../remux/mp4-remuxer');
 var _remuxMp4Remuxer2 = _interopRequireDefault(_remuxMp4Remuxer);
 
 var DemuxerWorker = function DemuxerWorker(self) {
+  var console = {
+    log: function worker_log(msg) {
+      // DEBUG HACK: 999 is "log" message
+      self.postMessage({ event: 999, msg: msg });
+    }
+  };
+
   // observer setup
   var observer = new _events4['default']();
   observer.trigger = function trigger(event) {
@@ -3207,7 +3241,7 @@ var DemuxerWorker = function DemuxerWorker(self) {
     observer.removeListener.apply(observer, [event].concat(data));
   };
   self.addEventListener('message', function (ev) {
-    //console.log('demuxer cmd:' + ev.data.cmd);
+    console.log('### DemuxerWorker: demuxer cmd:' + ev.data.cmd);
     switch (ev.data.cmd) {
       case 'init':
         self.demuxer = new _demuxDemuxerInline2['default'](observer, _remuxMp4Remuxer2['default']);
@@ -3223,6 +3257,7 @@ var DemuxerWorker = function DemuxerWorker(self) {
 
   // listen to events triggered by TS Demuxer
   observer.on(_events2['default'].FRAG_PARSING_INIT_SEGMENT, function (ev, data) {
+    console.log("### DemuxerWorker.observer: on FRAG_PARSING_INIT_SEGMENT");
     var objData = { event: ev };
     var objTransferable = [];
     if (data.audioCodec) {
@@ -3243,25 +3278,30 @@ var DemuxerWorker = function DemuxerWorker(self) {
   });
 
   observer.on(_events2['default'].FRAG_PARSING_DATA, function (ev, data) {
+    console.log("### DemuxerWorker.observer: on FRAG_PARSING_DATA");
     var objData = { event: ev, type: data.type, startPTS: data.startPTS, endPTS: data.endPTS, startDTS: data.startDTS, endDTS: data.endDTS, moof: data.moof.buffer, mdat: data.mdat.buffer, nb: data.nb };
     // pass moof/mdat data as transferable object (no copy)
     self.postMessage(objData, [objData.moof, objData.mdat]);
   });
 
   observer.on(_events2['default'].FRAG_PARSED, function (event) {
+    console.log("### DemuxerWorker.observer: on FRAG_PARSED");
     self.postMessage({ event: event });
   });
 
   observer.on(_events2['default'].ERROR, function (event, data) {
+    console.log("### DemuxerWorker.observer: on ERROR");
     self.postMessage({ event: event, data: data });
   });
 
   observer.on(_events2['default'].FRAG_PARSING_METADATA, function (event, data) {
+    console.log("### DemuxerWorker.observer: on FRAG_PARSING_METADATA");
     var objData = { event: event, samples: data.samples };
     self.postMessage(objData);
   });
 
   observer.on(_events2['default'].FRAG_PARSING_USERDATA, function (event, data) {
+    console.log("### DemuxerWorker.observer: on FRAG_PARSING_USERDATA");
     var objData = { event: event, samples: data.samples };
     self.postMessage(objData);
   });
@@ -3348,6 +3388,7 @@ var Demuxer = (function () {
     key: 'pushDecrypted',
     value: function pushDecrypted(data, audioCodec, videoCodec, timeOffset, cc, level, sn, duration) {
       if (this.w) {
+	console.log("### Demuxer.pushDecrypted(): Sending 'demux' command");
         // post fragment payload as transferable objects (no copy)
         this.w.postMessage({ cmd: 'demux', data: data, audioCodec: audioCodec, videoCodec: videoCodec, timeOffset: timeOffset, cc: cc, level: level, sn: sn, duration: duration }, [data]);
       } else {
@@ -3375,6 +3416,9 @@ var Demuxer = (function () {
     value: function onWorkerMessage(ev) {
       //console.log('onWorkerMessage:' + ev.data.event);
       switch (ev.data.event) {
+	case 999:
+	  console.log("### DemuxerWorker: "+ev.data.msg);
+	  break;
         case _events2['default'].FRAG_PARSING_INIT_SEGMENT:
           var obj = {};
           if (ev.data.audioMoov) {
@@ -3391,6 +3435,7 @@ var Demuxer = (function () {
           this.hls.trigger(_events2['default'].FRAG_PARSING_INIT_SEGMENT, obj);
           break;
         case _events2['default'].FRAG_PARSING_DATA:
+          console.log("### onWorkerMessage(FRAG_PARSING_DATA): Triggering hls FRAG_PARSING_DATA");
           this.hls.trigger(_events2['default'].FRAG_PARSING_DATA, {
             moof: new Uint8Array(ev.data.moof),
             mdat: new Uint8Array(ev.data.mdat),
@@ -6661,6 +6706,7 @@ var MP4Remuxer = (function () {
       track.samples = samples;
       moof = _remuxMp4Generator2['default'].moof(track.sequenceNumber++, firstDTS / pes2mp4ScaleFactor, track);
       track.samples = [];
+      console.log("### remuxVideo(): Triggering FRAG_PARSING_DATA");
       this.observer.trigger(_events2['default'].FRAG_PARSING_DATA, {
         moof: moof,
         mdat: mdat,
@@ -6790,6 +6836,7 @@ var MP4Remuxer = (function () {
         track.samples = samples;
         moof = _remuxMp4Generator2['default'].moof(track.sequenceNumber++, firstDTS / pes2mp4ScaleFactor, track);
         track.samples = [];
+	console.log("### remuxAudio(): Triggering FRAG_PARSING_DATA");
         this.observer.trigger(_events2['default'].FRAG_PARSING_DATA, {
           moof: moof,
           mdat: mdat,
@@ -7478,7 +7525,7 @@ var enableLogs = function enableLogs(debugConfig) {
   if (debugConfig === true || typeof debugConfig === 'object') {
     exportLoggerFunctions(debugConfig,
     // Remove out from list here to hard-disable a log-level
-    //'trace',
+    'trace',
     'debug', 'log', 'info', 'warn', 'error');
     // Some browsers don't allow to use bind on console object anyway
     // fallback to default if needed
