@@ -1,0 +1,23 @@
+<html>
+<head>
+</head>
+<body style="margin:0;overflow:hidden;background:#000">
+<script src="dist/hls.js"></script>
+<video id="video" style="position:absolute;left:0;top:0;width:100%;height:100%"></video>
+<script>
+  if(Hls.isSupported()) {
+    var config = { debug: true };
+    var video = document.getElementById('video');
+    var hls = new Hls(config);
+    var streamurl = window.location.search.substring(1);
+    if (streamurl == "") 
+      streamurl = 'http://www.streambox.fr/playlists/test_001/stream.m3u8';
+    hls.loadSource(streamurl);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED,function() {
+      video.play();
+  });
+ }
+</script>
+</body>
+</html>
